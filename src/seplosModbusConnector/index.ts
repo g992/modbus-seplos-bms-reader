@@ -34,10 +34,15 @@ export class SeplosModbusConnector {
     }
 
     public async init() {
-        await this.port.open()
-        if(this.debug) console.log('Com port opened')
-        this.isPortOpened = true
-        await this.parseConnected()
+        try {
+            await this.port.open()
+            if(this.debug) console.log('Com port opened')
+            this.isPortOpened = true
+            await this.parseConnected()
+            return true
+        } catch (e) {
+            return false
+        }
     }
 
     private async parseConnected() {
