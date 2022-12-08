@@ -1,22 +1,22 @@
 import {SerialPort} from 'serialport'
-import {calcCheckSum, formBatteryIdStr} from "./utils";
-import {StoreItem, Telemetry} from "./types";
+import {calcCheckSum, formBatteryIdStr} from './utils';
+import {StoreItem, Telemetry} from './types';
 import { ReadlineParser } from '@serialport/parser-readline'
-import {clearInterval} from "timers";
+import {clearInterval} from 'timers';
 
 export class SeplosModbusConnector {
 
     private readonly port: SerialPort
-    private isPortOpened: boolean = false
-    public debug: boolean = false
-    public storeSize: number = 100
+    private isPortOpened = false
+    public debug = false
+    public storeSize = 100
     private telemetryStore = new Map<string, StoreItem>()
-    private telemetryRequested: boolean = false
-    private teledataRequested: boolean = false
-    public timeout: number = 250
+    private telemetryRequested = false
+    private teledataRequested = false
+    public timeout = 250
     private parser: ReadlineParser
     private scannedDevices: number[] = []
-    private circularReading: boolean = false
+    private circularReading = false
 
     constructor(port: string) {
         this.port = new SerialPort({
@@ -54,12 +54,15 @@ export class SeplosModbusConnector {
                 if(this.debug) console.log('Founded device at 0x' + formBatteryIdStr(i))
             }
         }
+        return ;
     }
 
     public async readAllData() {
         for (const id of this.scannedDevices) {
             await this.readTelemetryData(id)
             this.telemetryRequested = false
+            await this.readWarningData(id)
+            this.teledataRequested = false
         }
     }
 
@@ -67,7 +70,23 @@ export class SeplosModbusConnector {
     public async readTelemetryData(cell: number) {
         if (this.telemetryRequested) return false
         this.telemetryRequested = true
-        const request = this.formTelemetryRequest(cell)
+        const request = this.formRequest(cell, '42')
+        const res = await this.sendAndReceive(request)
+        if (typeof res === 'boolean') {
+            if (this.debug) console.log('Timed out')
+            this.telemetryRequested = false
+            return false
+        }
+
+        if (this.debug) console.log('Detected end of line, received message:', res)
+        this.extractDataFromMessage(res.replace('~', ''))
+        return true
+    }
+
+    public async readWarningData(cell: number) {
+        if(this.teledataRequested) return false
+        this.teledataRequested = true
+        const request = this.formRequest(cell, '44')
         const res = await this.sendAndReceive(request)
         if (typeof res === 'boolean') {
             if (this.debug) console.log('Timed out')
@@ -102,8 +121,7 @@ export class SeplosModbusConnector {
         });
     }
 
-    private formTelemetryRequest(cell: number) {
-        const command = '42'
+    private formRequest(cell: number, command: '42' | '44') {
         const battery = formBatteryIdStr(cell)
         const preformedStr = `20${battery}46${command}E002${battery}`
         const checksum = calcCheckSum(preformedStr)
@@ -128,11 +146,22 @@ export class SeplosModbusConnector {
 
         const info = msgWOChkSum.slice(12)
         if(this.telemetryRequested) this.extractTelemetryData(info, addressString)
+        if(this.teledataRequested) this.extractTeledata(info, addressString)
     }
 
     private extractTelemetryData(msg: string, address: string) {
         const infoParsed = this.parseTelemetryInfo(msg)
-        this.updateInfoInTelemetryStore(address, infoParsed)
+        if(!isNaN(infoParsed.capacity)) {
+            this.updateInfoInStore(address, infoParsed)
+        }
+        this.telemetryRequested = false
+    }
+
+    private extractTeledata(msg: string, address: string) {
+        const infoParsed = this.parseTeledataInfo(msg)
+        if(!isNaN(infoParsed.alarmEvent5)) {
+            this.updateInfoInStore(address, infoParsed)
+        }
         this.telemetryRequested = false
     }
 
@@ -175,12 +204,65 @@ export class SeplosModbusConnector {
         return result
     }
 
+    private parseTeledataInfo(infoStr: string) {
+        const result: Telemetry = new Telemetry()
+        result.timestamp = Date.now()
+        let cursor = 4
+        result.cellsCount = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        for (let i = 0; i < result.cellsCount; i++) {
+            result.cellAlarm[i] = parseInt(infoStr.slice(cursor, cursor+2), 16)
+            cursor += 2
+        }
+        result.tempCount = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        for (let i = 0; i < result.tempCount; i++) {
+            result.tempAlarm[i] = parseInt(infoStr.slice(cursor, cursor + 2), 16)
+            cursor += 2
+        }
+
+        result.currentAlarm = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.voltageAlarm = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.customAlarms = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.alarmEvent0 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.alarmEvent1 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.alarmEvent2 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.alarmEvent3 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.alarmEvent4 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.alarmEvent5 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.alarmEvent6 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.alarmEvent7 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.equilibriumState0 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.equilibriumState1 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.disconnectionState0 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.disconnectionState1 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.onOffState = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+        result.systemState = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        return result
+    }
+
     // private parseHexIntFromStr(str: string, from: number, length: number){
     //     const to = from + length
     //     return parseInt(str.slice(from, to), 16)
     // }
 
-    private updateInfoInTelemetryStore(address: string, info: Telemetry) {
+    private updateInfoInStore(address: string, info: Telemetry ) {
         const candidate = this.telemetryStore.get(address)
         if(candidate === undefined) return this.telemetryStore.set(address, [info])
         candidate.push(info)

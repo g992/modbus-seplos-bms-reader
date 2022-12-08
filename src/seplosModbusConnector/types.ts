@@ -14,9 +14,28 @@ export class Telemetry {
     cycles: number = 0
     soh: number = 0
     portVoltage: number = 0
+    cellAlarm: number[] = []
+    tempAlarm: number[] = []
+    currentAlarm: number = 0
+    voltageAlarm: number = 0
+    customAlarms: number = 0
+    alarmEvent0: number = 0
+    alarmEvent1: number = 0
+    alarmEvent2: number = 0
+    alarmEvent3: number = 0
+    alarmEvent4: number = 0
+    alarmEvent5: number = 0
+    alarmEvent6: number = 0
+    alarmEvent7: number = 0
+    equilibriumState0: number = 0
+    equilibriumState1: number = 0
+    disconnectionState0: number = 0
+    disconnectionState1: number = 0
+    onOffState: number = 0
+    systemState: number = 0
 }
 
-export type StoreItem = Telemetry[]
+export type StoreItem =  Telemetry[]
 
 export const telemetryMapping = [
     {

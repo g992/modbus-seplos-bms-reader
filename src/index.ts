@@ -11,7 +11,7 @@ const start = async () => {
     //await connector.readAllData() // one shot reading
 
     setInterval(async () => {
-        console.log(connector.requestInfoStore())
+        console.log(connector.requestInfoStore()[0][1])
         const t1 = connector.requestInfoStore()[0][1].at(-1)!.timestamp
         const t2 = connector.requestInfoStore()[0][1].at(-2)!.timestamp
         console.log(t1-t2) //reading speed
