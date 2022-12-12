@@ -14,6 +14,12 @@ export class Telemetry {
     cycles: number = 0
     soh: number = 0
     portVoltage: number = 0
+}
+
+export class Alarms {
+    timestamp: number = 0
+    tempCount: number = 0
+    cellsCount: number = 0
     cellAlarm: number[] = []
     tempAlarm: number[] = []
     currentAlarm: number = 0
@@ -35,7 +41,9 @@ export class Telemetry {
     systemState: number = 0
 }
 
-export type StoreItem =  Telemetry[]
+export type AlarmsItem = Alarms[]
+
+export type StoreItem = Telemetry[]
 
 export const telemetryMapping = [
     {

@@ -1,6 +1,6 @@
 import {SerialPort} from 'serialport'
 import {calcCheckSum, formBatteryIdStr} from './utils';
-import {StoreItem, Telemetry} from './types';
+import {Alarms, AlarmsItem, StoreItem, Telemetry} from './types';
 import { ReadlineParser } from '@serialport/parser-readline'
 import {clearInterval} from 'timers';
 
@@ -11,6 +11,7 @@ export class SeplosModbusConnector {
     public debug = false
     public storeSize = 100
     private telemetryStore = new Map<string, StoreItem>()
+    private alarmsStore = new Map<string, AlarmsItem>()
     private telemetryRequested = false
     private teledataRequested = false
     public timeout = 250
@@ -35,6 +36,7 @@ export class SeplosModbusConnector {
 
     public async init() {
         try {
+            if(this.isPortOpened) return true
             await this.port.open()
             if(this.debug) console.log('Com port opened')
             this.isPortOpened = true
@@ -43,6 +45,13 @@ export class SeplosModbusConnector {
         } catch (e) {
             return false
         }
+    }
+
+    public disconnect() {
+        this.stopCircularReading()
+        this.port.close()
+        this.isPortOpened = false
+        return true
     }
 
     private async parseConnected() {
@@ -151,7 +160,7 @@ export class SeplosModbusConnector {
 
     private extractTelemetryData(msg: string, address: string) {
         const infoParsed = this.parseTelemetryInfo(msg)
-        if(!isNaN(infoParsed.capacity)) {
+        if(!isNaN(infoParsed.capacity) && !isNaN(infoParsed.portVoltage)) {
             this.updateInfoInStore(address, infoParsed)
         }
         this.telemetryRequested = false
@@ -160,7 +169,7 @@ export class SeplosModbusConnector {
     private extractTeledata(msg: string, address: string) {
         const infoParsed = this.parseTeledataInfo(msg)
         if(!isNaN(infoParsed.alarmEvent5)) {
-            this.updateInfoInStore(address, infoParsed)
+            this.updateAlarmsInStore(address, infoParsed)
         }
         this.telemetryRequested = false
     }
@@ -205,7 +214,7 @@ export class SeplosModbusConnector {
     }
 
     private parseTeledataInfo(infoStr: string) {
-        const result: Telemetry = new Telemetry()
+        const result: Alarms = new Alarms()
         result.timestamp = Date.now()
         let cursor = 4
         result.cellsCount = parseInt(infoStr.slice(cursor, cursor+2), 16)
@@ -239,21 +248,25 @@ export class SeplosModbusConnector {
         cursor += 2
         result.alarmEvent5 = parseInt(infoStr.slice(cursor, cursor+2), 16)
         cursor += 2
-        result.alarmEvent6 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+
+        result.onOffState = parseInt(infoStr.slice(cursor, cursor+2), 16)
         cursor += 2
-        result.alarmEvent7 = parseInt(infoStr.slice(cursor, cursor+2), 16)
-        cursor += 2
+
         result.equilibriumState0 = parseInt(infoStr.slice(cursor, cursor+2), 16)
         cursor += 2
         result.equilibriumState1 = parseInt(infoStr.slice(cursor, cursor+2), 16)
         cursor += 2
+        result.systemState = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
+
         result.disconnectionState0 = parseInt(infoStr.slice(cursor, cursor+2), 16)
         cursor += 2
         result.disconnectionState1 = parseInt(infoStr.slice(cursor, cursor+2), 16)
         cursor += 2
-        result.onOffState = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        result.alarmEvent6 = parseInt(infoStr.slice(cursor, cursor+2), 16)
         cursor += 2
-        result.systemState = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        result.alarmEvent7 = parseInt(infoStr.slice(cursor, cursor+2), 16)
+        cursor += 2
         return result
     }
 
@@ -270,8 +283,21 @@ export class SeplosModbusConnector {
         this.telemetryStore.set(address, sliced)
     }
 
+
+    private updateAlarmsInStore(address: string, info: Alarms ) {
+        const candidate = this.alarmsStore.get(address)
+        if(candidate === undefined) return this.alarmsStore.set(address, [info])
+        candidate.push(info)
+        const sliced = candidate.slice(-1 * this.storeSize)
+        this.alarmsStore.set(address, sliced)
+    }
+
     public requestInfoStore() {
         return [...this.telemetryStore.entries()]
+    }
+
+    public requestAlarmStore() {
+        return [...this.alarmsStore.entries()]
     }
 
     public async startCircularReading() {
